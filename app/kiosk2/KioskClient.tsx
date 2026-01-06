@@ -1,8 +1,6 @@
 'use client'
 
-import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
-
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 type DowntimeReason = 'break' | 'fault'
 
@@ -49,7 +47,6 @@ function formatHMS(ms: number) {
 }
 
 export default function KioskClient({ deviceId }: { deviceId: string }) {
-
   const [rfidBuffer, setRfidBuffer] = useState('')
   const [selectedWO, setSelectedWO] = useState<WorkOrder | null>(null)
   const [state, setState] = useState<SessionState>({ phase: 'idle' })
@@ -149,12 +146,22 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
     alert(
       `İŞ EMRİ BİTTİ\nOperatör: ${opName}\nWO: ${wo.wo}\nÜretilen: ${produced}\nSüre: ${formatHMS(elapsedMs)}\nPPH: ${Math.round(runningInfo.pph)}`
     )
-
     resetToIdle()
   }
 
+  const canPickWO = state.phase === 'authenticated'
+  const canStart = state.phase === 'authenticated' && !!selectedWO
+
   return (
-    <div style={{ padding: 28, fontFamily: 'system-ui', minHeight: '100vh', background: '#f6f7fb' }}>
+    <div
+      style={{
+        padding: 28,
+        fontFamily: 'system-ui',
+        minHeight: '100vh',
+        background: '#f6f7fb',
+        color: '#111827', // <-- KONTRAST FIX
+      }}
+    >
       <input
         ref={hiddenInputRef}
         value={rfidBuffer}
@@ -166,61 +173,73 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
         style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', height: 1, width: 1 }}
       />
 
-
       <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <div style={{ background: 'white', borderRadius: 16, padding: 18, boxShadow: '0 6px 18px rgba(0,0,0,0.06)' }}>
+        {/* SOL */}
+        <div style={cardStyle()}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: 18, fontWeight: 800 }}>1) Operatör</div>
             {state.phase !== 'idle' && (
-              <button onClick={resetToIdle} style={{ padding: '10px 12px', borderRadius: 12, border: '1px solid #ddd', background: 'white' }}>
+              <button onClick={resetToIdle} style={ghostBtn()}>
                 Çıkış
               </button>
             )}
           </div>
 
-          {state.phase === 'idle' && (
+          {state.phase === 'idle' ? (
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 16, opacity: 0.8 }}>RFID kartı okut. (Okuyucu klavye gibi yazıp Enter gönderir.)</div>
+              <div style={{ fontSize: 16, color: '#374151' }}>
+                RFID kartı okut. (Okuyucu klavye gibi yazıp Enter gönderir.)
+              </div>
               <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
                 <input
                   value={rfidBuffer}
                   onChange={(e) => setRfidBuffer(e.target.value)}
                   placeholder="Test için: 000000001 veya ahmet"
-                  style={{ flex: 1, padding: 14, borderRadius: 12, border: '1px solid #ddd', fontSize: 16 }}
+                  style={{
+                    flex: 1,
+                    padding: 14,
+                    borderRadius: 12,
+                    border: '1px solid #d1d5db',
+                    fontSize: 16,
+                    background: 'white',
+                    color: '#111827',
+                  }}
                 />
-                <button
-                  onClick={onRFIDEnter}
-                  style={{ padding: '14px 16px', borderRadius: 12, border: 0, background: '#111827', color: 'white', fontSize: 16, fontWeight: 700 }}
-                >
+                <button onClick={onRFIDEnter} style={solidBtn('#111827')}>
                   Giriş
                 </button>
               </div>
             </div>
+          ) : (
+            <div style={{ marginTop: 12, fontSize: 18 }}>
+              Operatör: <b>{state.operatorName}</b>
+            </div>
           )}
 
-          {state.phase !== 'idle' && <div style={{ marginTop: 12, fontSize: 18 }}>Operatör: <b>{state.operatorName}</b></div>}
-
           <div style={{ marginTop: 18, fontSize: 18, fontWeight: 800 }}>2) İş Emri Seç</div>
+
           <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
             {demoWorkOrders.map((wo) => {
               const selected = selectedWO?.id === wo.id
-              const disabled = state.phase !== 'authenticated'
               return (
                 <button
                   key={wo.id}
-                  disabled={disabled}
+                  disabled={!canPickWO}
                   onClick={() => setSelectedWO(wo)}
                   style={{
                     textAlign: 'left',
                     padding: 14,
                     borderRadius: 14,
                     border: selected ? '2px solid #2563eb' : '1px solid #e5e7eb',
-                    background: disabled ? '#f3f4f6' : 'white',
-                    opacity: disabled ? 0.6 : 1,
+                    background: !canPickWO ? '#f3f4f6' : 'white',
+                    color: '#111827',
+                    cursor: !canPickWO ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  <div style={{ fontWeight: 800 }}>{wo.wo} — {wo.model}</div>
-                  <div style={{ opacity: 0.85, marginTop: 4, fontSize: 14 }}>
+                  <div style={{ fontWeight: 800 }}>
+                    {wo.wo} — {wo.model}
+                  </div>
+                  <div style={{ marginTop: 4, fontSize: 14, color: '#374151' }}>
                     {wo.operation} • {wo.color} • {wo.size} • hedef {wo.target_pph} parça/saat
                   </div>
                 </button>
@@ -228,32 +247,20 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
             })}
           </div>
 
-          <button
-            onClick={startWork}
-            disabled={!(state.phase === 'authenticated' && selectedWO)}
-            style={{
-              marginTop: 14,
-              width: '100%',
-              padding: 16,
-              borderRadius: 14,
-              border: 0,
-              background: state.phase === 'authenticated' && selectedWO ? '#16a34a' : '#9ca3af',
-              color: 'white',
-              fontSize: 18,
-              fontWeight: 900,
-            }}
-          >
+          <button onClick={startWork} disabled={!canStart} style={solidBtn(canStart ? '#16a34a' : '#9ca3af', true)}>
             ▶️ Başlat
           </button>
         </div>
 
-        <div style={{ background: 'white', borderRadius: 16, padding: 18, boxShadow: '0 6px 18px rgba(0,0,0,0.06)' }}>
+        {/* SAĞ */}
+        <div style={cardStyle()}>
           <div style={{ fontSize: 18, fontWeight: 800 }}>3) Üretim / Durum</div>
 
-          {(state.phase === 'running' || state.phase === 'paused') ? (
+          {state.phase === 'running' || state.phase === 'paused' ? (
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 16, opacity: 0.85 }}>
-                Aktif WO: <b>{state.wo.wo}</b> — {state.wo.model} / {state.wo.operation} / {state.wo.color} / {state.wo.size}
+              <div style={{ fontSize: 16, color: '#374151' }}>
+                Aktif WO: <b style={{ color: '#111827' }}>{state.wo.wo}</b> — {state.wo.model} / {state.wo.operation} / {state.wo.color} /{' '}
+                {state.wo.size}
               </div>
 
               <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
@@ -268,12 +275,20 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
                 </button>
 
                 {state.phase === 'paused' ? (
-                  <button onClick={resume} style={btnStyle('#2563eb')}>▶️ Devam</button>
+                  <button onClick={resume} style={btnStyle('#2563eb')}>
+                    ▶️ Devam
+                  </button>
                 ) : (
-                  <button onClick={() => pause('break')} style={btnStyle('#f59e0b')}>⏸ Mola</button>
+                  <button onClick={() => pause('break')} style={btnStyle('#f59e0b')}>
+                    ⏸ Mola
+                  </button>
                 )}
 
-                <button onClick={() => pause('fault')} disabled={state.phase !== 'running'} style={btnStyle(state.phase === 'running' ? '#ef4444' : '#9ca3af')}>
+                <button
+                  onClick={() => pause('fault')}
+                  disabled={state.phase !== 'running'}
+                  style={btnStyle(state.phase === 'running' ? '#ef4444' : '#9ca3af')}
+                >
                   ⚠️ Arıza
                 </button>
 
@@ -283,7 +298,9 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
               </div>
             </div>
           ) : (
-            <div style={{ marginTop: 12, opacity: 0.75, fontSize: 16 }}>Başlatınca burada üretim butonları açılacak.</div>
+            <div style={{ marginTop: 12, fontSize: 16, color: '#374151' }}>
+              Başlatınca burada üretim butonları açılacak.
+            </div>
           )}
 
           <div style={{ marginTop: 18, fontSize: 18, fontWeight: 800 }}>4) Günlük (Demo)</div>
@@ -301,10 +318,47 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ background: '#f3f4f6', borderRadius: 14, padding: 14 }}>
-      <div style={{ fontSize: 12, opacity: 0.75 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 900, marginTop: 4 }}>{value}</div>
+      <div style={{ fontSize: 12, color: '#374151' }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 900, marginTop: 4, color: '#111827' }}>{value}</div>
     </div>
   )
+}
+
+function cardStyle() {
+  return {
+    background: 'white',
+    borderRadius: 16,
+    padding: 18,
+    boxShadow: '0 6px 18px rgba(0,0,0,0.06)',
+  } as const
+}
+
+function ghostBtn() {
+  return {
+    padding: '10px 12px',
+    borderRadius: 12,
+    border: '1px solid #d1d5db',
+    background: 'white',
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: 'pointer',
+  } as const
+}
+
+function solidBtn(bg: string, fullWidth = false) {
+  return {
+    marginTop: 14,
+    width: fullWidth ? '100%' : undefined,
+    padding: '14px 16px',
+    borderRadius: 12,
+    border: 0,
+    background: bg,
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 800,
+    cursor: bg === '#9ca3af' ? 'not-allowed' : 'pointer',
+  } as const
 }
 
 function btnStyle(bg: string) {
@@ -316,5 +370,6 @@ function btnStyle(bg: string) {
     color: 'white',
     fontSize: 18,
     fontWeight: 900,
+    cursor: bg === '#9ca3af' ? 'not-allowed' : 'pointer',
   } as const
 }
