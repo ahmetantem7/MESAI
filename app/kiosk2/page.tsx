@@ -18,12 +18,12 @@ export default async function Kiosk2Page({
             <Image src="/eren-logo.png" alt="Eren Logo" width={120} height={40} priority />
             <h1 style={{ fontSize: 28, fontWeight: 700 }}>MESAI Kiosk (v2)</h1>
           </div>
-          <div style={{ marginTop: 6, opacity: 0.8 }}>
+          <div style={{ marginTop: 0, opacity: 1, color: '#111827' }}>
             Device ID: <b>{deviceId}</b>
           </div>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 14, opacity: 0.7 }}>Durum</div>
+        <div style={{ textAlign: 'right', color: '#111827' }}>
+          <div style={{ fontSize: 14, opacity: 1 }}>Durum</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>RFID Bekleniyor</div>
         </div>
       </div>
