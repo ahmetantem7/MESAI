@@ -8,7 +8,7 @@ export default async function Kiosk2Page({
   searchParams: Promise<{ device_id?: string }>;
 }) {
   const sp = await searchParams;
-  const deviceId = sp.device_id || "DVN-????";
+  const deviceId = sp.device_id || "DVN-0001";
 
   return (
     <div style={{ padding: 28, fontFamily: "system-ui", minHeight: "100vh", background: "#f6f7fb" }}>
