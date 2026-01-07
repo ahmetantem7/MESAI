@@ -18,7 +18,16 @@ type SessionState =
   | { phase: 'idle' }
   | { phase: 'authenticated'; operatorId: string; operatorName: string }
   | { phase: 'running'; operatorId: string; operatorName: string; wo: WorkOrder; startTs: number; produced: number }
-  | { phase: 'paused'; operatorId: string; operatorName: string; wo: WorkOrder; startTs: number; produced: number; reason: DowntimeReason; pauseTs: number }
+  | {
+      phase: 'paused'
+      operatorId: string
+      operatorName: string
+      wo: WorkOrder
+      startTs: number
+      produced: number
+      reason: DowntimeReason
+      pauseTs: number
+    }
 
 const demoWorkOrders: WorkOrder[] = [
   { id: '1', wo: 'WO-1001', model: 'LACOSTE POLO', operation: 'Dikiş', color: 'Lacivert', size: 'M', target_pph: 45 },
@@ -52,34 +61,124 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
   const [state, setState] = useState<SessionState>({ phase: 'idle' })
   const [tick, setTick] = useState(0)
 
+  // Touch/Android gibi cihazlarda soft-keyboard açmamak için davranış ayrımı
+  const [isTouch, setIsTouch] = useState(false)
+
+  // Barcode scanner state
+  const [scanOpen, setScanOpen] = useState(false)
+  const [scanError, setScanError] = useState<string | null>(null)
+
   const hiddenInputRef = useRef<HTMLInputElement | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const rafRef = useRef<number | null>(null)
 
+  function stopScanner() {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    rafRef.current = null
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+
+    setScanOpen(false)
+  }
+
+  function loginWithCode(code: string) {
+    const op = demoLookupOperator(code)
+    setRfidBuffer('')
+    if (!op) return
+    setState({ phase: 'authenticated', operatorId: op.id, operatorName: op.name })
+  }
+
+  async function openScanner() {
+    setScanError(null)
+    setScanOpen(true)
+
+    try {
+      if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Kamera erişimi desteklenmiyor.')
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      })
+      streamRef.current = stream
+
+      const video = videoRef.current
+      if (!video) throw new Error('Video elementi bulunamadı.')
+      video.srcObject = stream
+      await video.play()
+
+      const Detector = (window as any).BarcodeDetector
+      if (!Detector) {
+        throw new Error('BarcodeDetector desteklenmiyor. (Android Chrome güncel olmalı)')
+      }
+
+      const detector = new Detector({
+        formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'data_matrix'],
+      })
+
+      const loop = async () => {
+        try {
+          const barcodes = await detector.detect(video)
+          if (barcodes?.length) {
+            const raw = barcodes[0]?.rawValue?.trim()
+            if (raw) {
+              stopScanner()
+              loginWithCode(raw)
+              return
+            }
+          }
+        } catch {
+          // Bazı frame'lerde detect hata atabilir, sessiz geçiyoruz
+        }
+        rafRef.current = requestAnimationFrame(loop)
+      }
+
+      rafRef.current = requestAnimationFrame(loop)
+    } catch (e: any) {
+      setScanError(e?.message || 'Scanner açılamadı.')
+    }
+  }
+
+  // Touch tespiti + hidden input focus davranışı
   useEffect(() => {
-  const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+    const touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+    setIsTouch(touch)
 
-  const focusHidden = () => {
-    // Touch cihazlarda soft keyboard açmamak için otomatik focus yok
-    if (isTouch) return
-    hiddenInputRef.current?.focus()
-  }
+    const focusHidden = () => {
+      // Touch cihazlarda soft keyboard açmamak için otomatik focus yok
+      if (touch) return
+      hiddenInputRef.current?.focus()
+    }
 
-  // İlk açılışta (touch değilse) focusla
-  focusHidden()
-
-  const onPointerDown = (e: any) => {
-    // Buton / input / select vs tıklanınca focus zorlamayalım
-    const tag = (e.target?.tagName || '').toLowerCase()
-    if (['button', 'input', 'textarea', 'select', 'a', 'label'].includes(tag)) return
+    // İlk açılışta (touch değilse) focusla
     focusHidden()
-  }
 
-  window.addEventListener('pointerdown', onPointerDown, true)
-  return () => window.removeEventListener('pointerdown', onPointerDown, true)
-}, [])
+    const onPointerDown = (e: any) => {
+      // Buton / input / select vs tıklanınca focus zorlamayalım
+      const tag = (e.target?.tagName || '').toLowerCase()
+      if (['button', 'input', 'textarea', 'select', 'a', 'label', 'video'].includes(tag)) return
+      focusHidden()
+    }
 
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [])
+
+  // Tick
   useEffect(() => {
     const id = window.setInterval(() => setTick((t) => t + 1), 1000)
     return () => window.clearInterval(id)
+  }, [])
+
+  // Unmount cleanup (kamera açıksa kapat)
+  useEffect(() => {
+    return () => stopScanner()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const runningInfo = useMemo(() => {
@@ -94,6 +193,7 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
   }, [state, tick])
 
   function resetToIdle() {
+    stopScanner()
     setSelectedWO(null)
     setRfidBuffer('')
     setState({ phase: 'idle' })
@@ -160,7 +260,9 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
     const elapsedMs = (state.phase === 'paused' ? state.pauseTs : Date.now()) - state.startTs
 
     alert(
-      `İŞ EMRİ BİTTİ\nOperatör: ${opName}\nWO: ${wo.wo}\nÜretilen: ${produced}\nSüre: ${formatHMS(elapsedMs)}\nPPH: ${Math.round(runningInfo.pph)}`
+      `İŞ EMRİ BİTTİ\nOperatör: ${opName}\nWO: ${wo.wo}\nÜretilen: ${produced}\nSüre: ${formatHMS(elapsedMs)}\nPPH: ${Math.round(
+        runningInfo.pph
+      )}`
     )
     resetToIdle()
   }
@@ -175,9 +277,48 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
         fontFamily: 'system-ui',
         minHeight: '100vh',
         background: '#f6f7fb',
-        color: '#111827', // <-- KONTRAST FIX
+        color: '#111827',
       }}
     >
+      {/* Scanner Modal */}
+      {scanOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.75)',
+            display: 'grid',
+            placeItems: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div style={{ background: 'white', borderRadius: 16, padding: 14, width: 'min(520px, 100%)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontWeight: 900, fontSize: 16, color: '#111827' }}>Barcode Okut</div>
+              <button onClick={stopScanner} style={ghostBtn()}>
+                Kapat
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <video ref={videoRef} playsInline muted style={{ width: '100%', borderRadius: 14, background: '#111827' }} />
+            </div>
+
+            {scanError && (
+              <div style={{ marginTop: 10, color: '#b91c1c', fontWeight: 700 }}>
+                {scanError}
+              </div>
+            )}
+
+            <div style={{ marginTop: 10, fontSize: 12, color: '#374151' }}>
+              Kamerayı barkoda yaklaştır. Okuyunca otomatik giriş yapar.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Klavye-emülatör RFID okuyucu için (touch olmayan cihazlarda) hidden input */}
       <input
         ref={hiddenInputRef}
         value={rfidBuffer}
@@ -204,13 +345,20 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
           {state.phase === 'idle' ? (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 16, color: '#374151' }}>
-                RFID kartı okut. (Okuyucu klavye gibi yazıp Enter gönderir.)
+                {isTouch
+                  ? 'Operatör barkodunu “Scan Barcode” ile okut.'
+                  : 'RFID kartı okut. (Okuyucu klavye gibi yazıp Enter gönderir.)'}
               </div>
+
               <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
                 <input
                   value={rfidBuffer}
                   onChange={(e) => setRfidBuffer(e.target.value)}
-                  placeholder="Test için: 000000001 veya ahmet"
+                  onFocus={() => {
+                    // Touch cihazlarda input'a tıklayınca da scanner açılsın
+                    if (isTouch) openScanner()
+                  }}
+                  placeholder={isTouch ? 'Touch cihaz: Scan Barcode kullan' : 'Test için: 000000001 veya ahmet'}
                   style={{
                     flex: 1,
                     padding: 14,
@@ -221,8 +369,23 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
                     color: '#111827',
                   }}
                 />
-                <button onClick={onRFIDEnter} style={solidBtn('#111827')}>
+
+                {/* Giriş: Touch cihazda scanner aç, diğerinde mevcut enter/login */}
+                <button
+                  onClick={() => {
+                    if (isTouch) openScanner()
+                    else onRFIDEnter()
+                  }}
+                  style={solidBtn('#111827')}
+                >
                   Giriş
+                </button>
+              </div>
+
+              {/* Giriş butonunun ALTINA Scan Barcode */}
+              <div style={{ marginTop: 10 }}>
+                <button onClick={openScanner} style={solidBtn('#2563eb', true)}>
+                  📷 Scan Barcode
                 </button>
               </div>
             </div>
@@ -314,9 +477,7 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
               </div>
             </div>
           ) : (
-            <div style={{ marginTop: 12, fontSize: 16, color: '#374151' }}>
-              Başlatınca burada üretim butonları açılacak.
-            </div>
+            <div style={{ marginTop: 12, fontSize: 16, color: '#374151' }}>Başlatınca burada üretim butonları açılacak.</div>
           )}
 
           <div style={{ marginTop: 18, fontSize: 18, fontWeight: 800 }}>4) Günlük (Demo)</div>
