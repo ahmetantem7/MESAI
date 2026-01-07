@@ -55,11 +55,27 @@ export default function KioskClient({ deviceId }: { deviceId: string }) {
   const hiddenInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    const focus = () => hiddenInputRef.current?.focus()
-    focus()
-    window.addEventListener('click', focus)
-    return () => window.removeEventListener('click', focus)
-  }, [])
+  const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+
+  const focusHidden = () => {
+    // Touch cihazlarda soft keyboard açmamak için otomatik focus yok
+    if (isTouch) return
+    hiddenInputRef.current?.focus()
+  }
+
+  // İlk açılışta (touch değilse) focusla
+  focusHidden()
+
+  const onPointerDown = (e: any) => {
+    // Buton / input / select vs tıklanınca focus zorlamayalım
+    const tag = (e.target?.tagName || '').toLowerCase()
+    if (['button', 'input', 'textarea', 'select', 'a', 'label'].includes(tag)) return
+    focusHidden()
+  }
+
+  window.addEventListener('pointerdown', onPointerDown, true)
+  return () => window.removeEventListener('pointerdown', onPointerDown, true)
+}, [])
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((t) => t + 1), 1000)
